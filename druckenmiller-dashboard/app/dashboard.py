@@ -245,24 +245,119 @@ def main():
                     # Format display columns
                     display_df = results_df.copy()
                     
+                    # Helper functions for signal processing
+                    def get_latest_signal_type(signals):
+                        """Extract the most recent signal type or return NONE"""
+                        if not signals or len(signals) == 0:
+                            return "NONE"
+                        # Find the signal with the latest timestamp
+                        if isinstance(signals, list) and len(signals) > 0:
+                            latest_signal = None
+                            latest_timestamp = None
+                            
+                            for signal in signals:
+                                if isinstance(signal, dict):
+                                    timestamp = signal.get('timestamp', None)
+                                    if timestamp:
+                                        # Convert to comparable timestamp
+                                        if isinstance(timestamp, pd.Timestamp):
+                                            ts = timestamp
+                                        else:
+                                            try:
+                                                ts = pd.Timestamp(timestamp)
+                                            except:
+                                                continue
+                                        
+                                        if latest_timestamp is None or ts > latest_timestamp:
+                                            latest_timestamp = ts
+                                            latest_signal = signal
+                            
+                            # If we found a signal with timestamp, use it
+                            if latest_signal:
+                                signal_type = latest_signal.get('signal_type', None)
+                                if signal_type:
+                                    return str(signal_type).upper()
+                            
+                            # Fallback: if no timestamps, use the last signal in the list
+                            signal = signals[-1]
+                            if isinstance(signal, dict):
+                                signal_type = signal.get('signal_type', None)
+                                if signal_type:
+                                    return str(signal_type).upper()
+                        return "NONE"
+                    
+                    def format_recent_signals(signals):
+                        """Convert signal objects to formatted strings"""
+                        if not signals or len(signals) == 0:
+                            return ""
+                        formatted = []
+                        for signal in signals:
+                            if isinstance(signal, dict):
+                                signal_type = signal.get('signal_type', 'UNKNOWN')
+                                timestamp = signal.get('timestamp', None)
+                                if timestamp:
+                                    if isinstance(timestamp, pd.Timestamp):
+                                        date_str = timestamp.strftime('%Y-%m-%d')
+                                    else:
+                                        date_str = str(timestamp)[:10]  # Extract date part
+                                    formatted.append(f"{signal_type.upper()} ({date_str})")
+                                else:
+                                    formatted.append(signal_type.upper())
+                        return " | ".join(formatted)
+                    
+                    # Add signal_type column BEFORE formatting recent_signals
+                    if 'recent_signals' in display_df.columns:
+                        display_df['signal_type'] = display_df['recent_signals'].apply(get_latest_signal_type)
+                        # Format recent_signals column after extracting signal_type
+                        display_df['recent_signals'] = display_df['recent_signals'].apply(format_recent_signals)
+                    else:
+                        # If recent_signals column doesn't exist, set signal_type to NONE
+                        display_df['signal_type'] = "NONE"
+                    
                     # Format numeric columns
                     if 'price' in display_df.columns:
-                        display_df['price'] = display_df['price'].apply(lambda x: f"${x:.2f}")
+                        display_df['price'] = display_df['price'].apply(lambda x: f"${x:.2f}" if pd.notna(x) else "N/A")
                     if 'roc' in display_df.columns:
-                        display_df['roc'] = display_df['roc'].apply(lambda x: f"{x:.2f}%")
+                        display_df['roc'] = display_df['roc'].apply(lambda x: f"{x:.2f}%" if pd.notna(x) else "N/A")
                     if 'acceleration' in display_df.columns:
-                        display_df['acceleration'] = display_df['acceleration'].apply(lambda x: f"{x:.4f}")
+                        display_df['acceleration'] = display_df['acceleration'].apply(lambda x: f"{x:.4f}" if pd.notna(x) else "N/A")
+                    if 'acceleration_change' in display_df.columns:
+                        display_df['acceleration_change'] = display_df['acceleration_change'].apply(lambda x: f"{x:.4f}" if pd.notna(x) else "N/A")
                     if 'volume_confirmation' in display_df.columns:
-                        display_df['volume_confirmation'] = display_df['volume_confirmation'].apply(lambda x: f"{x:.2f}x")
+                        display_df['volume_confirmation'] = display_df['volume_confirmation'].apply(lambda x: f"{x:.2f}x" if pd.notna(x) else "N/A")
+                    if 'latest_signal_date' in display_df.columns:
+                        display_df['latest_signal_date'] = display_df['latest_signal_date'].apply(
+                            lambda x: x.strftime('%Y-%m-%d') if pd.notna(x) else ""
+                        )
                     
-                    # Highlight top signals
-                    def highlight_row(row):
-                        if row['just_crossed_zero']:
-                            return ['background-color: #90EE90'] * len(row)
-                        return [''] * len(row)
+                    # Reorder columns: ticker | price | signal_type | roc | acceleration | acceleration_change | volume_confirmation | latest_signal_date
+                    column_order = ['ticker', 'price', 'signal_type', 'roc', 'acceleration', 'acceleration_change', 'volume_confirmation', 'latest_signal_date']
+                    # Add any remaining columns that aren't in the order list
+                    remaining_cols = [col for col in display_df.columns if col not in column_order]
+                    column_order.extend(remaining_cols)
+                    # Filter to only columns that exist
+                    column_order = [col for col in column_order if col in display_df.columns]
+                    display_df = display_df[column_order]
+                    
+                    # Color code signal_type column
+                    def style_signal_type(val):
+                        """Apply color coding to signal_type column"""
+                        if val == "POTENTIAL_BOTTOM":
+                            return 'background-color: #90EE90; color: #006400; font-weight: bold'
+                        elif val == "POTENTIAL_TOP":
+                            return 'background-color: #FFB6C1; color: #8B0000; font-weight: bold'
+                        elif val == "NONE":
+                            return 'background-color: #D3D3D3; color: #696969'
+                        return ''
+                    
+                    # Apply styling
+                    styled_df = display_df.style.applymap(
+                        style_signal_type,
+                        subset=['signal_type']
+                    )
                     
                     st.dataframe(
-                        display_df.style.apply(highlight_row, axis=1),
+                        styled_df,
                         use_container_width=True,
                         hide_index=True
                     )
