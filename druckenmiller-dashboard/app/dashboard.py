@@ -5,8 +5,9 @@ Main Streamlit dashboard application
 import sys
 from pathlib import Path
 
-# Add parent directory to path for imports
-sys.path.insert(0, str(Path(__file__).parent.parent))
+# Add the project root to the path so imports work on Streamlit Cloud
+root_dir = Path(__file__).parent.parent
+sys.path.insert(0, str(root_dir))
 
 import streamlit as st
 import pandas as pd
