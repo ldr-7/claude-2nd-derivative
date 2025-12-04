@@ -65,8 +65,8 @@ def create_main_chart(
     if show_signals and 'signal_type' in df.columns:
         signal_df = df[df['signal_type'].notna()].copy()
         
-        # Potential bottoms (green)
-        bottoms = signal_df[signal_df['signal_type'] == 'potential_bottom']
+        # POTENTIAL_BOTTOM (green triangle up)
+        bottoms = signal_df[signal_df['signal_type'].str.upper() == 'POTENTIAL_BOTTOM']
         if not bottoms.empty:
             fig.add_trace(go.Scatter(
                 x=bottoms.index,
@@ -81,8 +81,8 @@ def create_main_chart(
                 )
             ))
         
-        # Potential tops (red)
-        tops = signal_df[signal_df['signal_type'] == 'potential_top']
+        # POTENTIAL_TOP (red triangle down)
+        tops = signal_df[signal_df['signal_type'].str.upper() == 'POTENTIAL_TOP']
         if not tops.empty:
             fig.add_trace(go.Scatter(
                 x=tops.index,
@@ -94,6 +94,38 @@ def create_main_chart(
                     size=12,
                     color='red',
                     line=dict(width=2, color='darkred')
+                )
+            ))
+        
+        # ACCELERATING_UP (light green circle)
+        accel_up = signal_df[signal_df['signal_type'].str.upper() == 'ACCELERATING_UP']
+        if not accel_up.empty:
+            fig.add_trace(go.Scatter(
+                x=accel_up.index,
+                y=accel_up['close'],
+                mode='markers',
+                name='Accelerating Up',
+                marker=dict(
+                    symbol='circle',
+                    size=10,
+                    color='lightgreen',
+                    line=dict(width=1, color='green')
+                )
+            ))
+        
+        # ACCELERATING_DOWN (light red/orange circle)
+        accel_down = signal_df[signal_df['signal_type'].str.upper() == 'ACCELERATING_DOWN']
+        if not accel_down.empty:
+            fig.add_trace(go.Scatter(
+                x=accel_down.index,
+                y=accel_down['close'],
+                mode='markers',
+                name='Accelerating Down',
+                marker=dict(
+                    symbol='circle',
+                    size=10,
+                    color='#FF8C69',
+                    line=dict(width=1, color='red')
                 )
             ))
     
@@ -337,7 +369,8 @@ def create_combined_chart(
     if show_signals and 'signal_type' in df.columns:
         signal_df = df[df['signal_type'].notna()].copy()
         
-        bottoms = signal_df[signal_df['signal_type'] == 'potential_bottom']
+        # POTENTIAL_BOTTOM (green triangle up)
+        bottoms = signal_df[signal_df['signal_type'].str.upper() == 'POTENTIAL_BOTTOM']
         if not bottoms.empty:
             fig.add_trace(go.Scatter(
                 x=bottoms.index,
@@ -348,7 +381,8 @@ def create_combined_chart(
                 showlegend=False
             ), row=1, col=1)
         
-        tops = signal_df[signal_df['signal_type'] == 'potential_top']
+        # POTENTIAL_TOP (red triangle down)
+        tops = signal_df[signal_df['signal_type'].str.upper() == 'POTENTIAL_TOP']
         if not tops.empty:
             fig.add_trace(go.Scatter(
                 x=tops.index,
@@ -356,6 +390,30 @@ def create_combined_chart(
                 mode='markers',
                 name='Top',
                 marker=dict(symbol='triangle-down', size=10, color='red'),
+                showlegend=False
+            ), row=1, col=1)
+        
+        # ACCELERATING_UP (light green circle)
+        accel_up = signal_df[signal_df['signal_type'].str.upper() == 'ACCELERATING_UP']
+        if not accel_up.empty:
+            fig.add_trace(go.Scatter(
+                x=accel_up.index,
+                y=accel_up['close'],
+                mode='markers',
+                name='Accel Up',
+                marker=dict(symbol='circle', size=8, color='lightgreen'),
+                showlegend=False
+            ), row=1, col=1)
+        
+        # ACCELERATING_DOWN (light red/orange circle)
+        accel_down = signal_df[signal_df['signal_type'].str.upper() == 'ACCELERATING_DOWN']
+        if not accel_down.empty:
+            fig.add_trace(go.Scatter(
+                x=accel_down.index,
+                y=accel_down['close'],
+                mode='markers',
+                name='Accel Down',
+                marker=dict(symbol='circle', size=8, color='#FF8C69'),
                 showlegend=False
             ), row=1, col=1)
     

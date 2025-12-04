@@ -158,11 +158,11 @@ def main():
             with col3:
                 st.metric("Acceleration", f"{latest['acceleration']:.4f}")
             with col4:
-                signal_type = latest.get('signal_type', 'None')
-                if pd.notna(signal_type):
+                signal_type = latest.get('signal_type', 'NEUTRAL')
+                if pd.notna(signal_type) and signal_type != 'NEUTRAL':
                     st.metric("Signal", signal_type.replace('_', ' ').title())
                 else:
-                    st.metric("Signal", "None")
+                    st.metric("Signal", "NEUTRAL")
             
             st.divider()
             
@@ -245,47 +245,6 @@ def main():
                     # Format display columns
                     display_df = results_df.copy()
                     
-                    # Helper functions for signal processing
-                    def get_latest_signal_type(signals):
-                        """Extract the most recent signal type or return NONE"""
-                        if not signals or len(signals) == 0:
-                            return "NONE"
-                        # Find the signal with the latest timestamp
-                        if isinstance(signals, list) and len(signals) > 0:
-                            latest_signal = None
-                            latest_timestamp = None
-                            
-                            for signal in signals:
-                                if isinstance(signal, dict):
-                                    timestamp = signal.get('timestamp', None)
-                                    if timestamp:
-                                        # Convert to comparable timestamp
-                                        if isinstance(timestamp, pd.Timestamp):
-                                            ts = timestamp
-                                        else:
-                                            try:
-                                                ts = pd.Timestamp(timestamp)
-                                            except:
-                                                continue
-                                        
-                                        if latest_timestamp is None or ts > latest_timestamp:
-                                            latest_timestamp = ts
-                                            latest_signal = signal
-                            
-                            # If we found a signal with timestamp, use it
-                            if latest_signal:
-                                signal_type = latest_signal.get('signal_type', None)
-                                if signal_type:
-                                    return str(signal_type).upper()
-                            
-                            # Fallback: if no timestamps, use the last signal in the list
-                            signal = signals[-1]
-                            if isinstance(signal, dict):
-                                signal_type = signal.get('signal_type', None)
-                                if signal_type:
-                                    return str(signal_type).upper()
-                        return "NONE"
-                    
                     def format_recent_signals(signals):
                         """Convert signal objects to formatted strings"""
                         if not signals or len(signals) == 0:
@@ -305,14 +264,19 @@ def main():
                                     formatted.append(signal_type.upper())
                         return " | ".join(formatted)
                     
-                    # Add signal_type column BEFORE formatting recent_signals
-                    if 'recent_signals' in display_df.columns:
-                        display_df['signal_type'] = display_df['recent_signals'].apply(get_latest_signal_type)
-                        # Format recent_signals column after extracting signal_type
-                        display_df['recent_signals'] = display_df['recent_signals'].apply(format_recent_signals)
+                    # signal_type is already in the dataframe from screener (current state)
+                    # Format it if needed
+                    if 'signal_type' not in display_df.columns:
+                        display_df['signal_type'] = "NEUTRAL"
                     else:
-                        # If recent_signals column doesn't exist, set signal_type to NONE
-                        display_df['signal_type'] = "NONE"
+                        # Ensure signal_type is uppercase
+                        display_df['signal_type'] = display_df['signal_type'].apply(
+                            lambda x: str(x).upper() if pd.notna(x) else "NEUTRAL"
+                        )
+                    
+                    # Format recent_signals column if it exists
+                    if 'recent_signals' in display_df.columns:
+                        display_df['recent_signals'] = display_df['recent_signals'].apply(format_recent_signals)
                     
                     # Format numeric columns
                     if 'price' in display_df.columns:
@@ -339,14 +303,24 @@ def main():
                     column_order = [col for col in column_order if col in display_df.columns]
                     display_df = display_df[column_order]
                     
-                    # Color code signal_type column
+                    # Color code signal_type column based on quadrant logic
                     def style_signal_type(val):
                         """Apply color coding to signal_type column"""
-                        if val == "POTENTIAL_BOTTOM":
+                        val_str = str(val).upper()
+                        if val_str == "POTENTIAL_BOTTOM":
+                            # Green (buy signal)
                             return 'background-color: #90EE90; color: #006400; font-weight: bold'
-                        elif val == "POTENTIAL_TOP":
+                        elif val_str == "ACCELERATING_UP":
+                            # Light green (bullish continuation)
+                            return 'background-color: #C8E6C9; color: #2E7D32; font-weight: bold'
+                        elif val_str == "POTENTIAL_TOP":
+                            # Red (sell signal)
                             return 'background-color: #FFB6C1; color: #8B0000; font-weight: bold'
-                        elif val == "NONE":
+                        elif val_str == "ACCELERATING_DOWN":
+                            # Light red/orange (bearish continuation)
+                            return 'background-color: #FFCCBC; color: #BF360C; font-weight: bold'
+                        elif val_str == "NEUTRAL":
+                            # Gray
                             return 'background-color: #D3D3D3; color: #696969'
                         return ''
                     
