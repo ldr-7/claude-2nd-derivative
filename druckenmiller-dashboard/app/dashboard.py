@@ -229,133 +229,234 @@ def main():
         
         st.session_state.screener.signal_detector.lookback_days = lookback_days
         
+        # Store results in session state
+        if 'screener_results' not in st.session_state:
+            st.session_state.screener_results = None
+        
         if st.button("Scan Watchlist", type="primary"):
             if not watchlist:
                 st.warning("Please enter at least one ticker in the watchlist")
             else:
                 with st.spinner(f"Scanning {len(watchlist)} tickers..."):
                     results_df = st.session_state.screener.scan_watchlist(watchlist, period=period)
-                
-                if results_df.empty:
-                    st.warning("No results found")
+                    st.session_state.screener_results = results_df
+        
+        # Display results if available
+        if st.session_state.screener_results is not None and not st.session_state.screener_results.empty:
+            results_df = st.session_state.screener_results.copy()
+            
+            # Filter section: "Just Crossed" Filter
+            st.subheader("Filters")
+            filter_col1, filter_col2 = st.columns([1, 1])
+            
+            with filter_col1:
+                show_only_crosses = st.checkbox("Show Only Recent Zero Crosses", value=False)
+                cross_lookback_days = st.slider(
+                    "Lookback Days",
+                    min_value=1,
+                    max_value=10,
+                    value=3,
+                    step=1,
+                    key="cross_lookback"
+                )
+            
+            with filter_col2:
+                # Sector filter
+                if 'sector' in results_df.columns:
+                    available_sectors = sorted(results_df['sector'].dropna().unique())
+                    selected_sectors = st.multiselect(
+                        "Filter by Sector",
+                        options=available_sectors,
+                        default=[],
+                        key="sector_filter"
+                    )
                 else:
-                    # Display results
-                    st.subheader("Ranked Results (by Signal Strength)")
-                    
-                    # Format display columns
-                    display_df = results_df.copy()
-                    
-                    def format_recent_signals(signals):
-                        """Convert signal objects to formatted strings"""
-                        if not signals or len(signals) == 0:
-                            return ""
-                        formatted = []
-                        for signal in signals:
-                            if isinstance(signal, dict):
-                                signal_type = signal.get('signal_type', 'UNKNOWN')
-                                timestamp = signal.get('timestamp', None)
-                                if timestamp:
-                                    if isinstance(timestamp, pd.Timestamp):
-                                        date_str = timestamp.strftime('%Y-%m-%d')
-                                    else:
-                                        date_str = str(timestamp)[:10]  # Extract date part
-                                    formatted.append(f"{signal_type.upper()} ({date_str})")
-                                else:
-                                    formatted.append(signal_type.upper())
-                        return " | ".join(formatted)
-                    
-                    # signal_type is already in the dataframe from screener (current state)
-                    # Format it if needed
-                    if 'signal_type' not in display_df.columns:
-                        display_df['signal_type'] = "NEUTRAL"
-                    else:
-                        # Ensure signal_type is uppercase
-                        display_df['signal_type'] = display_df['signal_type'].apply(
-                            lambda x: str(x).upper() if pd.notna(x) else "NEUTRAL"
-                        )
-                    
-                    # Format recent_signals column if it exists
-                    if 'recent_signals' in display_df.columns:
-                        display_df['recent_signals'] = display_df['recent_signals'].apply(format_recent_signals)
-                    
-                    # Format numeric columns
-                    if 'price' in display_df.columns:
-                        display_df['price'] = display_df['price'].apply(lambda x: f"${x:.2f}" if pd.notna(x) else "N/A")
-                    if 'roc' in display_df.columns:
-                        display_df['roc'] = display_df['roc'].apply(lambda x: f"{x:.2f}%" if pd.notna(x) else "N/A")
-                    if 'acceleration' in display_df.columns:
-                        display_df['acceleration'] = display_df['acceleration'].apply(lambda x: f"{x:.4f}" if pd.notna(x) else "N/A")
-                    if 'acceleration_change' in display_df.columns:
-                        display_df['acceleration_change'] = display_df['acceleration_change'].apply(lambda x: f"{x:.4f}" if pd.notna(x) else "N/A")
-                    if 'volume_confirmation' in display_df.columns:
-                        display_df['volume_confirmation'] = display_df['volume_confirmation'].apply(lambda x: f"{x:.2f}x" if pd.notna(x) else "N/A")
-                    if 'latest_signal_date' in display_df.columns:
-                        display_df['latest_signal_date'] = display_df['latest_signal_date'].apply(
-                            lambda x: x.strftime('%Y-%m-%d') if pd.notna(x) else ""
-                        )
-                    
-                    # Reorder columns: ticker | price | signal_type | roc | acceleration | acceleration_change | volume_confirmation | latest_signal_date
-                    column_order = ['ticker', 'price', 'signal_type', 'roc', 'acceleration', 'acceleration_change', 'volume_confirmation', 'latest_signal_date']
-                    # Add any remaining columns that aren't in the order list
-                    remaining_cols = [col for col in display_df.columns if col not in column_order]
-                    column_order.extend(remaining_cols)
-                    # Filter to only columns that exist
-                    column_order = [col for col in column_order if col in display_df.columns]
-                    display_df = display_df[column_order]
-                    
-                    # Color code signal_type column based on quadrant logic
-                    def style_signal_type(val):
-                        """Apply color coding to signal_type column"""
-                        val_str = str(val).upper()
-                        if val_str == "POTENTIAL_BOTTOM":
-                            # Green (buy signal)
-                            return 'background-color: #90EE90; color: #006400; font-weight: bold'
-                        elif val_str == "ACCELERATING_UP":
-                            # Light green (bullish continuation)
-                            return 'background-color: #C8E6C9; color: #2E7D32; font-weight: bold'
-                        elif val_str == "POTENTIAL_TOP":
-                            # Red (sell signal)
-                            return 'background-color: #FFB6C1; color: #8B0000; font-weight: bold'
-                        elif val_str == "ACCELERATING_DOWN":
-                            # Light red/orange (bearish continuation)
-                            return 'background-color: #FFCCBC; color: #BF360C; font-weight: bold'
-                        elif val_str == "NEUTRAL":
-                            # Gray
-                            return 'background-color: #D3D3D3; color: #696969'
-                        return ''
-                    
-                    # Apply styling
-                    styled_df = display_df.style.applymap(
-                        style_signal_type,
-                        subset=['signal_type']
+                    selected_sectors = []
+            
+            # Apply "Just Crossed" filter
+            if show_only_crosses:
+                # Filter to show only tickers where zero cross happened within lookback days
+                filtered_df = results_df[
+                    (results_df['days_since_cross'].notna()) & 
+                    (results_df['days_since_cross'] <= cross_lookback_days)
+                ].copy()
+            else:
+                filtered_df = results_df.copy()
+            
+            # Apply sector filter
+            if selected_sectors:
+                filtered_df = filtered_df[filtered_df['sector'].isin(selected_sectors)].copy()
+            
+            # Sorting section
+            st.subheader("Sorting")
+            sort_options = {
+                'Signal Strength': 'signal_strength',
+                'Acceleration Change (magnitude)': 'acceleration_change',
+                'Most Recent Cross': 'days_since_cross',
+                'ROC (absolute value)': 'roc'
+            }
+            
+            sort_by = st.selectbox(
+                "Sort By",
+                options=list(sort_options.keys()),
+                index=0,  # Default to Signal Strength
+                key="sort_by"
+            )
+            
+            sort_column = sort_options[sort_by]
+            
+            # Apply sorting
+            if sort_column == 'days_since_cross':
+                # For days_since_cross, sort ascending (most recent first), but handle nulls
+                filtered_df = filtered_df.sort_values(
+                    sort_column,
+                    ascending=True,
+                    na_position='last'
+                )
+            elif sort_column == 'acceleration_change':
+                # For acceleration_change (magnitude), sort by absolute value descending
+                filtered_df['accel_change_abs'] = filtered_df['acceleration_change'].abs()
+                filtered_df = filtered_df.sort_values('accel_change_abs', ascending=False, na_position='last')
+                filtered_df = filtered_df.drop('accel_change_abs', axis=1)
+            elif sort_column == 'roc':
+                # For ROC, sort by absolute value descending
+                filtered_df['roc_abs'] = filtered_df['roc'].abs()
+                filtered_df = filtered_df.sort_values('roc_abs', ascending=False, na_position='last')
+                filtered_df = filtered_df.drop('roc_abs', axis=1)
+            else:
+                # Default: descending (highest values first)
+                filtered_df = filtered_df.sort_values(sort_column, ascending=False, na_position='last')
+            
+            # Display summary
+            total_count = len(results_df)
+            filtered_count = len(filtered_df)
+            
+            if show_only_crosses:
+                st.info(f"Showing {filtered_count} tickers with zero crosses in last {cross_lookback_days} days (out of {total_count} total)")
+            else:
+                st.info(f"Showing {filtered_count} tickers (out of {total_count} total)")
+            
+            # Format display columns
+            display_df = filtered_df.copy()
+            
+            def format_recent_signals(signals):
+                """Convert signal objects to formatted strings"""
+                if not signals or len(signals) == 0:
+                    return ""
+                formatted = []
+                for signal in signals:
+                    if isinstance(signal, dict):
+                        signal_type = signal.get('signal_type', 'UNKNOWN')
+                        timestamp = signal.get('timestamp', None)
+                        if timestamp:
+                            if isinstance(timestamp, pd.Timestamp):
+                                date_str = timestamp.strftime('%Y-%m-%d')
+                            else:
+                                date_str = str(timestamp)[:10]  # Extract date part
+                            formatted.append(f"{signal_type.upper()} ({date_str})")
+                        else:
+                            formatted.append(signal_type.upper())
+                return " | ".join(formatted)
+            
+            # signal_type is already in the dataframe from screener (current state)
+            # Format it if needed
+            if 'signal_type' not in display_df.columns:
+                display_df['signal_type'] = "NEUTRAL"
+            else:
+                # Ensure signal_type is uppercase
+                display_df['signal_type'] = display_df['signal_type'].apply(
+                    lambda x: str(x).upper() if pd.notna(x) else "NEUTRAL"
+                )
+            
+            # Format recent_signals column if it exists
+            if 'recent_signals' in display_df.columns:
+                display_df['recent_signals'] = display_df['recent_signals'].apply(format_recent_signals)
+            
+            # Format numeric columns (keep raw values for sorting, but create formatted versions for display)
+            display_df_formatted = display_df.copy()
+            
+            if 'price' in display_df_formatted.columns:
+                display_df_formatted['price'] = display_df_formatted['price'].apply(lambda x: f"${x:.2f}" if pd.notna(x) else "N/A")
+            if 'roc' in display_df_formatted.columns:
+                display_df_formatted['roc'] = display_df_formatted['roc'].apply(lambda x: f"{x:.2f}%" if pd.notna(x) else "N/A")
+            if 'acceleration' in display_df_formatted.columns:
+                display_df_formatted['acceleration'] = display_df_formatted['acceleration'].apply(lambda x: f"{x:.4f}" if pd.notna(x) else "N/A")
+            if 'acceleration_change' in display_df_formatted.columns:
+                display_df_formatted['acceleration_change'] = display_df_formatted['acceleration_change'].apply(lambda x: f"{x:.4f}" if pd.notna(x) else "N/A")
+            if 'volume_confirmation' in display_df_formatted.columns:
+                display_df_formatted['volume_confirmation'] = display_df_formatted['volume_confirmation'].apply(lambda x: f"{x:.2f}x" if pd.notna(x) else "N/A")
+            if 'days_since_cross' in display_df_formatted.columns:
+                display_df_formatted['days_since_cross'] = display_df_formatted['days_since_cross'].apply(
+                    lambda x: f"{int(x)}" if pd.notna(x) else ""
+                )
+            if 'latest_signal_date' in display_df_formatted.columns:
+                display_df_formatted['latest_signal_date'] = display_df_formatted['latest_signal_date'].apply(
+                    lambda x: x.strftime('%Y-%m-%d') if pd.notna(x) else ""
+                )
+            
+            # Reorder columns: ticker | sector | price | signal_type | roc | acceleration | acceleration_change | days_since_cross | volume_confirmation | signal_strength
+            column_order = ['ticker', 'sector', 'price', 'signal_type', 'roc', 'acceleration', 'acceleration_change', 'days_since_cross', 'volume_confirmation', 'signal_strength']
+            # Add any remaining columns that aren't in the order list
+            remaining_cols = [col for col in display_df_formatted.columns if col not in column_order]
+            column_order.extend(remaining_cols)
+            # Filter to only columns that exist
+            column_order = [col for col in column_order if col in display_df_formatted.columns]
+            display_df_formatted = display_df_formatted[column_order]
+            
+            # Color code signal_type column based on quadrant logic
+            def style_signal_type(val):
+                """Apply color coding to signal_type column"""
+                val_str = str(val).upper()
+                if val_str == "POTENTIAL_BOTTOM":
+                    # Green (buy signal)
+                    return 'background-color: #90EE90; color: #006400; font-weight: bold'
+                elif val_str == "ACCELERATING_UP":
+                    # Light green (bullish continuation)
+                    return 'background-color: #C8E6C9; color: #2E7D32; font-weight: bold'
+                elif val_str == "POTENTIAL_TOP":
+                    # Red (sell signal)
+                    return 'background-color: #FFB6C1; color: #8B0000; font-weight: bold'
+                elif val_str == "ACCELERATING_DOWN":
+                    # Light red/orange (bearish continuation)
+                    return 'background-color: #FFCCBC; color: #BF360C; font-weight: bold'
+                elif val_str == "NEUTRAL":
+                    # Gray
+                    return 'background-color: #D3D3D3; color: #696969'
+                return ''
+            
+            # Apply styling
+            styled_df = display_df_formatted.style.applymap(
+                style_signal_type,
+                subset=['signal_type']
+            )
+            
+            st.subheader("Results")
+            st.dataframe(
+                styled_df,
+                use_container_width=True,
+                hide_index=True
+            )
+            
+            # Export button (export filtered results)
+            csv = filtered_df.to_csv(index=False)
+            st.download_button(
+                label="Download Screener Results as CSV",
+                data=csv,
+                file_name=f"screener_results_{datetime.now().strftime('%Y%m%d')}.csv",
+                mime="text/csv"
+            )
+            
+            # Show top signals summary
+            top_signals = filtered_df[filtered_df['just_crossed_zero'] == True].head(5)
+            if not top_signals.empty:
+                st.subheader("🔥 Top Signals (Zero Crossings Today)")
+                for _, row in top_signals.iterrows():
+                    signal_type = "Potential Bottom" if row['cross_direction'] == "up" else "Potential Top"
+                    st.success(
+                        f"**{row['ticker']}**: {signal_type} - "
+                        f"ROC: {row['roc']:.2f}%, "
+                        f"Acceleration: {row['acceleration']:.4f}"
                     )
-                    
-                    st.dataframe(
-                        styled_df,
-                        use_container_width=True,
-                        hide_index=True
-                    )
-                    
-                    # Export button
-                    csv = results_df.to_csv(index=False)
-                    st.download_button(
-                        label="Download Screener Results as CSV",
-                        data=csv,
-                        file_name=f"screener_results_{datetime.now().strftime('%Y%m%d')}.csv",
-                        mime="text/csv"
-                    )
-                    
-                    # Show top signals summary
-                    top_signals = results_df[results_df['just_crossed_zero'] == True].head(5)
-                    if not top_signals.empty:
-                        st.subheader("🔥 Top Signals (Zero Crossings Today)")
-                        for _, row in top_signals.iterrows():
-                            signal_type = "Potential Bottom" if row['cross_direction'] == "up" else "Potential Top"
-                            st.success(
-                                f"**{row['ticker']}**: {signal_type} - "
-                                f"ROC: {row['roc']:.2f}%, "
-                                f"Acceleration: {row['acceleration']:.4f}"
-                            )
 
 
 if __name__ == "__main__":
