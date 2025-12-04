@@ -57,7 +57,10 @@ class Screener:
         latest = df.iloc[-1]
         prev = df.iloc[-2] if len(df) > 1 else latest
         
-        # Check for recent zero crossings
+        # Get current signal_type (from quadrant logic)
+        current_signal_type = latest.get('signal_type', 'NEUTRAL')
+        
+        # Check for recent zero crossings (for historical context)
         recent_signals = self.signal_detector.get_recent_signals(df)
         
         # Calculate signal strength
@@ -90,12 +93,18 @@ class Screener:
         # Higher score = stronger signal
         signal_strength = 0
         
+        # Base score based on current signal type
+        if current_signal_type == 'POTENTIAL_BOTTOM':
+            signal_strength += 40
+        elif current_signal_type == 'POTENTIAL_TOP':
+            signal_strength += 40
+        elif current_signal_type == 'ACCELERATING_UP':
+            signal_strength += 20
+        elif current_signal_type == 'ACCELERATING_DOWN':
+            signal_strength += 20
+        
         if just_crossed:
-            signal_strength += 50  # Base score for zero crossing
-            if cross_direction == "up" and roc < 0:
-                signal_strength += 30  # Potential bottom
-            elif cross_direction == "down" and roc > 0:
-                signal_strength += 30  # Potential top
+            signal_strength += 30  # Bonus for zero crossing
         
         # Add points for magnitude of change
         signal_strength += min(accel_change * 10, 20)
@@ -104,16 +113,13 @@ class Screener:
         if volume_confirmation > 1.2:
             signal_strength += 10
         
-        # Add points for recent signals
-        if recent_signals:
-            signal_strength += len(recent_signals) * 5
-        
         return {
             'ticker': ticker,
             'price': latest['close'],
             'roc': roc,
             'acceleration': acceleration,
             'acceleration_change': accel_change,
+            'signal_type': current_signal_type,  # Current state, not historical
             'just_crossed_zero': just_crossed,
             'cross_direction': cross_direction,
             'volume_confirmation': volume_confirmation,

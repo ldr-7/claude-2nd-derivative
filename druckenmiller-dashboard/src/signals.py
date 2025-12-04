@@ -22,14 +22,22 @@ class SignalDetector:
     def __init__(self, lookback_days: int = SIGNAL_LOOKBACK_DAYS):
         self.lookback_days = lookback_days
     
-    def detect_zero_crossings(
-        self, 
+    def calculate_current_signal_type(
+        self,
         df: pd.DataFrame,
         acceleration_col: str = "acceleration",
         roc_col: str = "roc"
     ) -> pd.DataFrame:
         """
-        Detect when acceleration crosses zero
+        Calculate current signal_type based on acceleration/ROC quadrant matrix.
+        This reflects the CURRENT state, not historical events.
+        
+        Quadrant logic:
+        - acceleration > 0 and roc < 0: POTENTIAL_BOTTOM (deceleration of downtrend)
+        - acceleration < 0 and roc > 0: POTENTIAL_TOP (deceleration of uptrend)
+        - acceleration > 0 and roc > 0: ACCELERATING_UP (bullish momentum increasing)
+        - acceleration < 0 and roc < 0: ACCELERATING_DOWN (bearish momentum increasing)
+        - else: NEUTRAL
         
         Args:
             df: DataFrame with acceleration and ROC columns
@@ -37,7 +45,53 @@ class SignalDetector:
             roc_col: Column name for ROC
         
         Returns:
-            DataFrame with added columns: zero_crossing, signal_type
+            DataFrame with added signal_type column
+        """
+        result = df.copy()
+        
+        acceleration = result[acceleration_col]
+        roc = result[roc_col]
+        
+        # Initialize signal_type column
+        result['signal_type'] = 'NEUTRAL'
+        
+        # Handle NaN values - set to NEUTRAL if either is NaN
+        valid_mask = acceleration.notna() & roc.notna()
+        
+        # Quadrant 1: acceleration > 0 and roc < 0 -> POTENTIAL_BOTTOM
+        mask1 = valid_mask & (acceleration > 0) & (roc < 0)
+        result.loc[mask1, 'signal_type'] = 'POTENTIAL_BOTTOM'
+        
+        # Quadrant 2: acceleration < 0 and roc > 0 -> POTENTIAL_TOP
+        mask2 = valid_mask & (acceleration < 0) & (roc > 0)
+        result.loc[mask2, 'signal_type'] = 'POTENTIAL_TOP'
+        
+        # Quadrant 3: acceleration > 0 and roc > 0 -> ACCELERATING_UP
+        mask3 = valid_mask & (acceleration > 0) & (roc > 0)
+        result.loc[mask3, 'signal_type'] = 'ACCELERATING_UP'
+        
+        # Quadrant 4: acceleration < 0 and roc < 0 -> ACCELERATING_DOWN
+        mask4 = valid_mask & (acceleration < 0) & (roc < 0)
+        result.loc[mask4, 'signal_type'] = 'ACCELERATING_DOWN'
+        
+        return result
+    
+    def detect_zero_crossings(
+        self, 
+        df: pd.DataFrame,
+        acceleration_col: str = "acceleration",
+        roc_col: str = "roc"
+    ) -> pd.DataFrame:
+        """
+        Detect when acceleration crosses zero (for historical analysis)
+        
+        Args:
+            df: DataFrame with acceleration and ROC columns
+            acceleration_col: Column name for acceleration
+            roc_col: Column name for ROC
+        
+        Returns:
+            DataFrame with added column: zero_crossing
         """
         result = df.copy()
         
@@ -51,20 +105,8 @@ class SignalDetector:
         # Cross from above (positive to negative)
         cross_down = (prev_acceleration > 0) & (acceleration <= 0)
         
-        # Determine signal type based on ROC direction
-        roc = result[roc_col]
-        
-        # Potential bottom: acceleration crosses up while ROC is still negative
-        potential_bottom = cross_up & (roc < 0)
-        
-        # Potential top: acceleration crosses down while ROC is still positive
-        potential_top = cross_down & (roc > 0)
-        
-        # Initialize signal columns
+        # Initialize zero_crossing column
         result['zero_crossing'] = cross_up | cross_down
-        result['signal_type'] = None
-        result.loc[potential_bottom, 'signal_type'] = 'potential_bottom'
-        result.loc[potential_top, 'signal_type'] = 'potential_top'
         
         return result
     
@@ -170,7 +212,7 @@ class SignalDetector:
         roc_col: str = "roc"
     ) -> pd.DataFrame:
         """
-        Complete signal analysis: zero crossings and divergences
+        Complete signal analysis: current signal types, zero crossings, and divergences
         
         Args:
             df: DataFrame with price, ROC, and acceleration
@@ -181,7 +223,10 @@ class SignalDetector:
         Returns:
             DataFrame with all signal columns added
         """
-        # Detect zero crossings
+        # Calculate current signal_type based on quadrant logic (CURRENT state)
+        df = self.calculate_current_signal_type(df, acceleration_col, roc_col)
+        
+        # Detect zero crossings (for historical analysis)
         df = self.detect_zero_crossings(df, acceleration_col, roc_col)
         
         # Detect divergences
