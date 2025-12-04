@@ -12,10 +12,33 @@ from pathlib import Path
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+import yfinance as yf
+
 from src.data_fetcher import DataFetcher
 from src.derivatives import DerivativesCalculator
 from src.signals import SignalDetector
 from config.settings import DEFAULT_TIMEFRAME, SIGNAL_LOOKBACK_DAYS
+
+# ETF Sector Mapping
+ETF_SECTOR_MAP = {
+    'SPY': 'Broad Market',
+    'QQQ': 'Tech/Growth',
+    'IWM': 'Small Cap',
+    'XLF': 'Financials',
+    'XLE': 'Energy',
+    'XLK': 'Technology',
+    'XLI': 'Industrials',
+    'XLV': 'Healthcare',
+    'XLP': 'Consumer Staples',
+    'XLY': 'Consumer Discretionary',
+    'XLU': 'Utilities',
+    'XLB': 'Materials',
+    'XLRE': 'Real Estate',
+    'XLC': 'Communications',
+    'GLD': 'Commodities',
+    'TLT': 'Bonds',
+    'UUP': 'Currency',
+}
 
 
 class Screener:
@@ -30,6 +53,7 @@ class Screener:
         self.derivatives_calc = DerivativesCalculator()
         self.signal_detector = SignalDetector(lookback_days=lookback_days)
         self.timeframe = timeframe
+        self._sector_cache = {}  # Cache for sector lookups
     
     def scan_ticker(
         self,
@@ -78,6 +102,21 @@ class Screener:
             just_crossed = True
             cross_direction = "down"
         
+        # Calculate days since last zero cross
+        days_since_cross = None
+        if 'zero_crossing' in df.columns:
+            # Find the most recent zero crossing
+            crossings = df[df['zero_crossing'] == True]
+            if not crossings.empty:
+                # Get the index of the most recent crossing
+                last_cross_idx = crossings.index[-1]
+                # Calculate trading days since cross
+                # Count rows between last cross and latest (inclusive)
+                # If cross is at index i and latest is at index -1, days = (len - 1) - i
+                last_cross_position = df.index.get_loc(last_cross_idx)
+                latest_position = len(df) - 1
+                days_since_cross = latest_position - last_cross_position
+        
         # Magnitude of acceleration change
         accel_change = abs(acceleration - prev_acceleration) if not pd.isna(prev_acceleration) else 0
         
@@ -113,8 +152,12 @@ class Screener:
         if volume_confirmation > 1.2:
             signal_strength += 10
         
+        # Get sector information
+        sector = self.get_sector(ticker)
+        
         return {
             'ticker': ticker,
+            'sector': sector,
             'price': latest['close'],
             'roc': roc,
             'acceleration': acceleration,
@@ -122,6 +165,7 @@ class Screener:
             'signal_type': current_signal_type,  # Current state, not historical
             'just_crossed_zero': just_crossed,
             'cross_direction': cross_direction,
+            'days_since_cross': days_since_cross,
             'volume_confirmation': volume_confirmation,
             'signal_strength': signal_strength,
             'recent_signals': recent_signals,
@@ -189,3 +233,39 @@ class Screener:
         """
         df = self.scan_watchlist(tickers, period)
         return df.head(top_n)
+    
+    def get_sector(self, ticker: str) -> str:
+        """
+        Get sector for a ticker, using cache and ETF mapping
+        
+        Args:
+            ticker: Ticker symbol
+        
+        Returns:
+            Sector name or 'ETF/Other' if not found
+        """
+        ticker_upper = ticker.upper()
+        
+        # Check cache first
+        if ticker_upper in self._sector_cache:
+            return self._sector_cache[ticker_upper]
+        
+        # Check ETF mapping
+        if ticker_upper in ETF_SECTOR_MAP:
+            sector = ETF_SECTOR_MAP[ticker_upper]
+            self._sector_cache[ticker_upper] = sector
+            return sector
+        
+        # Fetch from yfinance
+        try:
+            ticker_info = yf.Ticker(ticker_upper).info
+            sector = ticker_info.get('sector', 'ETF/Other')
+            if not sector or sector == 'None':
+                sector = 'ETF/Other'
+            self._sector_cache[ticker_upper] = sector
+            return sector
+        except Exception as e:
+            print(f"Error fetching sector for {ticker_upper}: {e}")
+            sector = 'ETF/Other'
+            self._sector_cache[ticker_upper] = sector
+            return sector
